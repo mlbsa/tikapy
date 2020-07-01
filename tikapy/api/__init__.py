@@ -22,7 +22,6 @@ LOG = logging.getLogger(__name__)
 class ApiError(Exception):
     """
     Exception returned when API call fails.
-
     (!trap event)
     """
     pass
@@ -31,7 +30,6 @@ class ApiError(Exception):
 class ApiUnrecoverableError(Exception):
     """
     Exception returned when API call fails in an unrecovarable manner.
-
     (!fatal event)
     """
     pass
@@ -40,54 +38,84 @@ class ApiUnrecoverableError(Exception):
 class ApiRos:
     """
     MikroTik Router OS Python API base class
-
     For a basic understanding of this code, its important to read through
     http://wiki.mikrotik.com/wiki/Manual:API.
-
     Within MikroTik API 'words' and 'sentences' have a very specific meaning
     """
 
     def __init__(self, sock):
         """
         Initialize base class.
-
         Args:
             sock - Socket (should already be opened and connected)
         """
         self.sock = sock
         self.currenttag = 0
 
-    def login(self, username, password):
+    def login(self, username, password, send_plain_password=True):
         """
         Perform API login
-
         Args:
             username - Username used to login
             password - Password used to login
+            send_plain_password - Whether to send plaintext password (new-style)
+                                  without requiring MD5 CRAM. Default True
         """
 
-        # request login
-        # Mikrotik answers with a challenge in the 'ret' attribute
-        # 'ret' attribute accessible as attrs['ret']
-        _, attrs = self.talk(["/login"])[0]
+        # # request login
+        # # Mikrotik answers with a challenge in the 'ret' attribute
+        # # 'ret' attribute accessible as attrs['ret']
+        # _, attrs = self.talk(["/login"])[0]
 
-        # Prepare response for challenge-response login
-        # response is MD5 of 0-char + plaintext-password + challange
-        response = hashlib.md5()
-        response.update(b'\x00')
-        response.update(password.encode('UTF-8'))
-        response.update(binascii.unhexlify((attrs['ret']).encode('UTF-8')))
-        response = "00" + binascii.hexlify(response.digest()).decode('UTF-8')
+        # # Prepare response for challenge-response login
+        # # response is MD5 of 0-char + plaintext-password + challenge
+        # response = hashlib.md5()
+        # response.update(b'\x00')
+        # response.update(password.encode('UTF-8'))
+        # response.update(binascii.unhexlify((attrs['ret']).encode('UTF-8')))
+        # response = "00" + binascii.hexlify(response.digest()).decode('UTF-8')
 
-        # send response & login request
-        self.talk(["/login",
-                   "=name=%s" % username,
-                   "=response=%s" % response])
+        # # send response & login request
+        # self.talk(["/login",
+        #            "=name=%s" % username,
+        #            "=response=%s" % response])
+        
+
+        # RouterOS >= 6.43rc19 uses plaintext authentication:
+        #   --> /login{name, password}
+        #   <-- {}
+        #
+        # RouterOS <= 6.43rc17 uses MD5 challenge-response:
+        #   --> /login{}
+        #   <-- {ret}
+        #   --> /login{name, response}
+        #   <-- {}
+        
+        if send_plain_password:
+            _, attrs = self.talk(["/login",
+                                  "=name=%s" % username,
+                                  "=password=%s" % password])[0]
+        else:
+            _, attrs = self.talk(["/login"])[0]
+
+            if "ret" in attrs:
+                # Prepare response for challenge-response login
+                # response is MD5 of 0-char + plaintext-password + challange
+                response = hashlib.md5()
+                response.update(b'\x00')
+                response.update(password.encode('UTF-8'))
+                response.update(binascii.unhexlify((attrs['ret']).encode('UTF-8')))
+                response = "00" + binascii.hexlify(response.digest()).decode('UTF-8')
+
+                # send response & login request
+                self.talk(["/login",
+                        "=name=%s" % username,
+                        "=response=%s" % response])
+
 
     def talk(self, words):
         """
         Communicate with the API
-
         Args:
             words - List of API words to send
         """
@@ -144,9 +172,7 @@ class ApiRos:
     def write_sentence(self, words):
         """
         writes a sentence word by word to API socket.
-
         Ensures sentence is terminated with a zero-length word.
-
         Args:
             words - List of API words to send
         """
@@ -158,10 +184,8 @@ class ApiRos:
     def read_sentence(self):
         """
         reads sentence word by word from API socket.
-
         API uses zero-length word to terminate sentence, so words are read
         until zero-length word is received.
-
         Returns:
             words - List of API words read from socket
         """
@@ -175,18 +199,18 @@ class ApiRos:
     def write_word(self, word):
         """
         writes word to API socket
-
         The MikroTik API expects the length of the word to be sent over the
         wire using a special encoding followed by the word itself.
-
         See http://wiki.mikrotik.com/wiki/Manual:API#API_words for details.
-
         Args:
             word
         """
 
         length = len(word)
-        LOG.debug("<<< %s", word)
+        ## Disable the log attempt as it creates unneeded forced info
+        ## to shown on the screen with no option to disable this.
+        # LOG.debug("<<< %s", word)
+        
         # word length < 128
         if length < 0x80:
             self.write_sock(chr(length))
@@ -222,15 +246,11 @@ class ApiRos:
     def read_word(self):
         """
         read word from API socket
-
         The MikroTik API sends the length of the word to be received over the
         wire using a special encoding followed by the word itself.
-
         This function will first determine the length, and then read the
         word from the socket.
-
         See http://wiki.mikrotik.com/wiki/Manual:API#API_words for details.
-
         """
         # value of first byte determines how many bytes the encoded length
         # of the words will have.
@@ -295,13 +315,14 @@ class ApiRos:
 
         # read actual word from socket, using length determined above
         ret = self.read_sock(length)
-        LOG.debug(">>> %s", ret)
+        ## Disable the log attempt as it creates unneeded forced info
+        ## to shown on the screen with no option to disable this.
+        # LOG.debug(">>> %s", ret)
         return ret
 
     def write_sock(self, string):
         """
         write string to API socket
-
         Args:
             string - String to send
         """
@@ -313,7 +334,6 @@ class ApiRos:
     def read_sock(self, length):
         """
         read string with specified length from API socket
-
         Args:
             length - Number of chars to read from socket
         Returns:
