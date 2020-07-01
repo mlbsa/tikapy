@@ -101,12 +101,15 @@ class TikapyBaseClient():
         except socket.error:
             pass
 
-    def _connect_socket(self):
+    def _connect_socket(self, timeOut):
         """
         Connect the base socket.
 
         If self.address is a hostname, this function will loop through
         all available addresses until it can establish a connection.
+
+        :param timeOut: Time set for the timeout for the API connections
+        attempt.
 
         :raises: ClientError - if address/port has not been set
                              - if no connection to remote socket
@@ -125,6 +128,7 @@ class TikapyBaseClient():
 
             try:
                 self._base_sock = socket.socket(family, socktype, proto)
+                self._base_sock.settimeout(timeOut)
             except socket.error:
                 self._base_sock = None
                 continue
@@ -138,31 +142,43 @@ class TikapyBaseClient():
             break
 
         if self._base_sock is None:
-            LOG.error('could not open socket')
+            ## Disable the log attempt as it creates unneeded forced info
+            ## to shown on the screen with no option to disable this.
+            # LOG.error('could not open socket')
             raise ClientError('could not open socket')
 
-    def _connect(self):
+    def _connect(self, timeOut):
         """
         Connects the socket and stores the result in self._sock.
 
         This is meant to be sub-classed if a socket needs to be wrapped,
         f.e. with an SSL handler.
+
+        :param timeOut: Time set for the timeout for the API connections
+        attempt.
         """
-        self._connect_socket()
+        self._connect_socket(timeOut)
         self._sock = self._base_sock
 
-    def login(self, user, password):
+    def login(self, user, password, timeOut=60, allow_insecure_auth_without_tls=False):
         """
         Connects to the API and tries to login the user.
 
         :param user: Username for API connections
         :param password: Password for API connections
+        :param timeOut: Time set for the timeout for the API connections
+        attempt. Default is 60 seconds.
+        :param allow_insecure_auth_without_tls: Boolean to allow insecure
+        authentication. Default is False.
+
         :raises: ClientError - if login failed
         """
-        self._connect()
+        self._connect(timeOut)
         self._api = ApiRos(self._sock)
         try:
-            self._api.login(user, password)
+            socket_is_tls = hasattr(self._sock, "getpeercert")
+            send_plain_password = (socket_is_tls or allow_insecure_auth_without_tls)
+            self._api.login(user, password, send_plain_password)
         except (ApiError, ApiUnrecoverableError) as exc:
             raise ClientError('could not login') from exc
 
@@ -202,6 +218,31 @@ class TikapyBaseClient():
         except (TypeError, IndexError) as exc:
             raise ClientError('unable to convert api output to json') from exc
 
+    def _api_talk(self, words):
+        """
+        Send command sequence to the API. - See to update tik_to_json
+        so that you can remove ths function.
+
+        :param words: List of command sequences to send to the API
+        :returns: list containing response or ID. Includes responses pm
+        more advanced Mikrotik commands.
+        :raises: ClientError - If client could not talk to remote API.
+                 ValueError - On invalid input.
+        """
+        if isinstance(words, list) and all(isinstance(x, str) for x in words):
+            try:
+                result = []
+                feedback = self._api.talk(words)
+                for feed in feedback:
+                    temp = ""
+                    for temp in feed:
+                        if temp and isinstance(temp, dict):
+                            result.append(temp)
+                return result
+            except (ApiError, ApiUnrecoverableError) as exc:
+                raise ClientError('could not talk to api') from exc
+        raise ValueError('words needs to be a list of strings')
+        
 
 class TikapyClient(TikapyBaseClient):
     """
@@ -241,19 +282,29 @@ class TikapySslClient(TikapyBaseClient):
         self.verify_cert = verify_cert
         self.verify_addr = verify_addr
 
-    def _connect(self):
+    def _connect(self, timeOut):
         """
         Connects a ssl socket.
+
+        :param timeOut: Time set for the timeout for the API connections
+        attempt.
         """
-        self._connect_socket()
+        self._connect_socket(timeOut)
         try:
             ctx = ssl.create_default_context()
             if not self.verify_cert:
                 ctx.verify_mode = ssl.CERT_OPTIONAL
             if not self.verify_addr:
                 ctx.check_hostname = False
-            self._sock = ctx.wrap_socket(self._base_sock,
-                                         server_hostname=self.address)
+            
+            ## Added due to SSLv3 errors happening. This is even though ssl.create_default_context()
+            ## is suppose to set OP_NO_SSLv3, but it still tries to use SSLv3 and subsequently gets an
+            ## error. This was found on Windows and Linux environments. To bypass this you require to 
+            ## use ADH as the cipher with SECLEVEL set to 0.
+            ctx.set_ciphers('ADH:@SECLEVEL=0')
+            self._sock = ctx.wrap_socket(self._base_sock, server_hostname=self.address)
         except ssl.SSLError:
-            LOG.error('could not establish SSL connection')
+            ## Disable the log attempt as it creates unneeded forced info
+            ## to shown on the screen with no option to disable this.
+            # LOG.error('could not establish SSL connection')
             raise ClientError('could not establish SSL connection')
