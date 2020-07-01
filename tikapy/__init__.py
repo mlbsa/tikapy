@@ -217,32 +217,7 @@ class TikapyBaseClient():
                 if '.id' in d.keys()}
         except (TypeError, IndexError) as exc:
             raise ClientError('unable to convert api output to json') from exc
-
-    def _api_talk(self, words):
-        """
-        Send command sequence to the API. - See to update tik_to_json
-        so that you can remove ths function.
-
-        :param words: List of command sequences to send to the API
-        :returns: list containing response or ID. Includes responses pm
-        more advanced Mikrotik commands.
-        :raises: ClientError - If client could not talk to remote API.
-                 ValueError - On invalid input.
-        """
-        if isinstance(words, list) and all(isinstance(x, str) for x in words):
-            try:
-                result = []
-                feedback = self._api.talk(words)
-                for feed in feedback:
-                    temp = ""
-                    for temp in feed:
-                        if temp and isinstance(temp, dict):
-                            result.append(temp)
-                return result
-            except (ApiError, ApiUnrecoverableError) as exc:
-                raise ClientError('could not talk to api') from exc
-        raise ValueError('words needs to be a list of strings')
-        
+       
 
 class TikapyClient(TikapyBaseClient):
     """
