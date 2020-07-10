@@ -254,20 +254,24 @@ class TikapySslClient(TikapyBaseClient):
         attempt.
         """
         self._connect_socket(timeOut)
-        try:
-            ctx = ssl.create_default_context()
-            if not self.verify_cert:
-                ctx.verify_mode = ssl.CERT_OPTIONAL
-            if not self.verify_addr:
-                ctx.check_hostname = False
-            
+        try:            
             ## Added due to SSLv3 errors happening. This is even though ssl.create_default_context()
             ## is suppose to set OP_NO_SSLv3, but it still tries to use SSLv3 and subsequently gets an
             ## error. This was found on Windows and Linux environments. To bypass this you require to 
             ## use ADH as the cipher with SECLEVEL set to 0.
             if (os.name == "nt") and ("win" in sys.platform):
+                ctx = ssl.create_default_context()                            
+                if not self.verify_cert:
+                    ctx.verify_mode = ssl.CERT_OPTIONAL
+                if not self.verify_addr:
+                    ctx.check_hostname = False
+
                 ctx.set_ciphers('ADH:@SECLEVEL=0')
             else:
+                ctx = ssl.create_default_context()
+                ctx.verify_mode = ssl.CERT_OPTIONAL
+                if not self.verify_addr:
+                    ctx.check_hostname = False
                 ctx.set_ciphers('ADH')
             self._sock = ctx.wrap_socket(self._base_sock, server_hostname=self.address)
         except ssl.SSLError:
