@@ -270,8 +270,7 @@ class TikapySslClient(TikapyBaseClient):
             else:
                 ctx = ssl.create_default_context()
                 ctx.verify_mode = ssl.CERT_OPTIONAL
-                if not self.verify_addr:
-                    ctx.check_hostname = False
+                ctx.check_hostname = False
                 ctx.set_ciphers('ADH')
             self._sock = ctx.wrap_socket(self._base_sock, server_hostname=self.address)
         except ssl.SSLError:
