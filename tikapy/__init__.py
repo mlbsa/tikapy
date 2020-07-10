@@ -17,6 +17,9 @@ import socket
 import ssl
 from .api import ApiError, ApiRos, ApiUnrecoverableError
 
+## Imports for check to determine the OS
+import os, sys
+
 LOG = logging.getLogger(__name__)
 
 
@@ -262,7 +265,10 @@ class TikapySslClient(TikapyBaseClient):
             ## is suppose to set OP_NO_SSLv3, but it still tries to use SSLv3 and subsequently gets an
             ## error. This was found on Windows and Linux environments. To bypass this you require to 
             ## use ADH as the cipher with SECLEVEL set to 0.
-            ctx.set_ciphers('ADH:@SECLEVEL=0')
+            if (os.name == "nt") and ("win" in sys.platform):
+                ctx.set_ciphers('ADH:@SECLEVEL=0')
+            else:
+                ctx.set_ciphers('ADH')
             self._sock = ctx.wrap_socket(self._base_sock, server_hostname=self.address)
         except ssl.SSLError:
             ## Disable the log attempt as it creates unneeded forced info
